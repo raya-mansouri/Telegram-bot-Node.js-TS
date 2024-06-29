@@ -84,27 +84,30 @@ bot.command('check', async (ctx) => {
 });
 
 // Schedule daily reports
-const scheduledReports: { [chatId: number]: { url: string, hour: number } } = {};
+const scheduledReports: { [chatId: number]: { url: string, hour: number, minute: number } } = {};
 
 bot.command('schedule', (ctx) => {
-  const [command, url, hour] = ctx.message.text.split(' ');
+  const [command, url, time] = ctx.message.text.split(' ');
   const chatId = ctx.chat.id;
-  const hourInt = parseInt(hour, 10);
+  const [hour, minute] = time.split(':').map(Number);
 
-  if (!url || isNaN(hourInt)) {
-    return ctx.reply('Usage: /schedule <URL> <HOUR>');
+  if (!url || isNaN(hour) || isNaN(minute)) {
+    return ctx.reply('Usage: /schedule <URL> <HH:MM>');
   }
 
-  scheduledReports[chatId] = { url, hour: hourInt };
-  ctx.reply(`Scheduled daily report for ${url} at ${hour}:00.`);
+  scheduledReports[chatId] = { url, hour, minute };
+  ctx.reply(`Scheduled daily report for ${url} at ${hour}:${minute}.`);
 });
 
 // Set up cron jobs for daily reports
-new CronJob('0 * * * *', async () => {
-  const currentHour = new Date().getHours();
+new CronJob('* * * * *', async () => {
+  const now = new Date();
+  const currentHour = now.getHours();
+  const currentMinute = now.getMinutes();
+
   for (const chatId in scheduledReports) {
-    const { url, hour } = scheduledReports[chatId];
-    if (hour === currentHour) {
+    const { url, hour, minute } = scheduledReports[chatId];
+    if (hour === currentHour && minute === currentMinute) {
       try {
         const speedReport = await checkPageSpeed(url);
         const pdfBuffer = await generatePDFReport(speedReport);
@@ -117,6 +120,6 @@ new CronJob('0 * * * *', async () => {
       }
     }
   }
-}, null, true, 'America/Los_Angeles');
+}, null, true, 'Asia/Tehran');
 
 bot.launch();
