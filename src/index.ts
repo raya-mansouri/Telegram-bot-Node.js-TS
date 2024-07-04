@@ -1,5 +1,7 @@
 import { Telegraf } from 'telegraf';
 import axios from 'axios';
+import lighthouse from 'lighthouse';
+import * as chromeLauncher from 'chrome-launcher';
 import { SocksProxyAgent } from 'socks-proxy-agent';
 import { PDFDocument } from 'pdf-lib';
 import { CronJob } from 'cron';
@@ -27,15 +29,66 @@ if (!GOOGLE_PAGE_SPEED_API_KEY) {
 
 const bot = new Telegraf(TELEGRAM_BOT_API_KEY);
 
-// Function to check page speed
-async function checkPageSpeed(url: string): Promise<string> {    
-  // Create an axios instance configured to use the proxy agent
-  const client = axios.create({
-      baseURL: 'https://www.googleapis.com/pagespeedonline',
-      httpsAgent: proxyAgent,
-  });
-  const response = await client.get(`/v5/runPagespeed?url=${url}&key=${GOOGLE_PAGE_SPEED_API_KEY}`);
-  return JSON.stringify(response.data, null, 2);
+// Function to check page speed using Lighthouse
+async function checkPageSpeed(url: string): Promise<string> {
+  // Launch a headless Chrome instance
+  const chrome = await chromeLauncher.launch({ chromeFlags: ['--headless', '--disable-gpu', '--no-sandbox'] });
+
+  try {
+      // Run Lighthouse audit
+      const runnerResult = await lighthouse(url, {
+        logLevel: 'info' as 'info', // Cast logLevel to one of the allowed literal types
+        output: 'json',
+        onlyCategories: ['performance'],
+        port: chrome.port,
+    }
+  );
+
+      // Check if runnerResult is defined and contains the required fields
+      if (!runnerResult || !runnerResult.lhr) {
+          throw new Error('Lighthouse did not return a valid result.');
+      }
+
+      // `.lhr` is the Lighthouse Result Object
+      const report = runnerResult.lhr;
+
+      // Extract key performance metrics
+      const performanceScore = (report.categories.performance?.score ?? 0) * 100; // Performance score (0-100 scale)
+      const speedIndex = report.audits['speed-index'].displayValue; // Speed Index
+      const firstContentfulPaint = report.audits['first-contentful-paint'].displayValue; // First Contentful Paint (FCP)
+      const largestContentfulPaint = report.audits['largest-contentful-paint'].displayValue; // Largest Contentful Paint (LCP)
+      const timeToInteractive = report.audits['interactive'].displayValue; // Time to Interactive (TTI)
+
+      // Prepare the result object with key metrics
+      const result = {
+          url: report.finalDisplayedUrl,
+          performanceScore: performanceScore,
+          speedIndex: speedIndex,
+          firstContentfulPaint: firstContentfulPaint,
+          largestContentfulPaint: largestContentfulPaint,
+          timeToInteractive: timeToInteractive,
+      };
+
+      // Optionally, save the full report to a file (JSON or HTML based on options)
+      const outputPath = 'lighthouse-report.json';
+      fs.writeFileSync(outputPath, JSON.stringify(report, null, 2));
+
+      console.log(`Lighthouse report saved to ${outputPath}`);
+
+      // Return the formatted result as a JSON string
+      return JSON.stringify(result, null, 2);
+
+  } catch (error) {
+      // Error handling
+      if (error instanceof Error) {
+          throw new Error(`Failed to analyze the page speed for ${url}: ${error.message}`);
+      } else {
+          throw new Error(`An unknown error occurred while analyzing the page speed for ${url}.`);
+      }
+  } finally {
+      // Ensure Chrome is closed after the audit
+      await chrome.kill();
+  }
 }
 
 // Function to generate PDF report
@@ -73,7 +126,7 @@ bot.command('check', async (ctx) => {
   try {
     const speedReport = await checkPageSpeed(url);
     const pdfBuffer = await generatePDFReport(speedReport);
-    const filePath = path.join(__dirname, 'report.pdf');
+    const filePath = path.join(process.cwd(), 'report.pdf');
     fs.writeFileSync(filePath, pdfBuffer);
     await ctx.replyWithDocument({ source: filePath, filename: 'report.pdf' });
     fs.unlinkSync(filePath); // Clean up the file
@@ -111,7 +164,7 @@ new CronJob('* * * * *', async () => {
       try {
         const speedReport = await checkPageSpeed(url);
         const pdfBuffer = await generatePDFReport(speedReport);
-        const filePath = path.join(__dirname, 'report.pdf');
+        const filePath = path.join(process.cwd(), 'report.pdf');
         fs.writeFileSync(filePath, pdfBuffer);
         await bot.telegram.sendDocument(chatId, { source: filePath, filename: 'report.pdf' });
         fs.unlinkSync(filePath); // Clean up the file
