@@ -4,7 +4,7 @@ import * as chromeLauncher from 'chrome-launcher';
 import { PDFDocument } from 'pdf-lib';
 import fs from 'fs';
 import path from 'path';
-import { SocksProxyAgent } from 'socks-proxy-agent';
+// import { SocksProxyAgent } from 'socks-proxy-agent';
 import dotenv from 'dotenv';
 import { Telegraf } from 'telegraf';
 
@@ -21,7 +21,7 @@ if (!TELEGRAM_BOT_API_KEY) {
 const bot = new Telegraf(TELEGRAM_BOT_API_KEY);
 
 // Create a SOCKS proxy agent
-const proxyAgent = new SocksProxyAgent('socks5://localhost:1080');
+// const proxyAgent = new SocksProxyAgent('socks5://localhost:1080');
 
 // Function to check page speed using Lighthouse
 async function checkPageSpeed(url: string): Promise<string> {
@@ -55,11 +55,6 @@ async function checkPageSpeed(url: string): Promise<string> {
       timeToInteractive,
     };
 
-    const outputPath = 'lighthouse-report.json';
-    fs.writeFileSync(outputPath, JSON.stringify(report, null, 2));
-
-    console.log(`Lighthouse report saved to ${outputPath}`);
-
     return JSON.stringify(result, null, 2);
   } catch (error) {
     if (error instanceof Error) {
@@ -78,6 +73,7 @@ async function generatePDFReport(content: string): Promise<Buffer> {
   const page = pdfDoc.addPage();
   page.drawText(content, { x: 50, y: 700, size: 12 });
   const pdfBytes = await pdfDoc.save();
+  console.log(`Lighthouse result saved to report.pdf`);
   return Buffer.from(pdfBytes);
 }
 
